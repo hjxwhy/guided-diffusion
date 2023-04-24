@@ -7,6 +7,7 @@ import torch as th
 import torch.distributed as dist
 from torch.nn.parallel.distributed import DistributedDataParallel as DDP
 from torch.optim import AdamW
+import torchvision
 
 from . import dist_util, logger
 from .fp16_util import MixedPrecisionTrainer
@@ -160,6 +161,7 @@ class TrainLoop:
             if self.step % self.log_interval == 0:
                 logger.dumpkvs()
             if self.step % self.save_interval == 0:
+                self.sample()
                 self.save()
                 # Run for a finite amount of time in integration tests.
                 if os.environ.get("DIFFUSION_TRAINING_TEST", "") and self.step > 0:
@@ -228,6 +230,28 @@ class TrainLoop:
     def log_step(self):
         logger.logkv("step", self.step + self.resume_step)
         logger.logkv("samples", (self.step + self.resume_step + 1) * self.global_batch)
+    
+    def sample(self):
+        print("sample ----------")
+        batch_size = 8
+        sample_fn = self.diffusion.ddim_sample_loop
+        sample = sample_fn(
+            self.model,
+            (batch_size, 3, self.model.image_size, self.model.image_size),
+            clip_denoised=True,
+        )
+        # sample = ((sample + 1) * 127.5).clamp(0, 255).to(th.uint8)
+        sample = (sample + 1).clamp(0, 1)
+        # sample = sample.permute(0, 2, 3, 1)
+        sample = sample.contiguous()
+        gathered_samples = [th.zeros_like(sample) for _ in range(dist.get_world_size())]
+        dist.all_gather(gathered_samples, sample)  # gather not supported with NCCL
+        gathered_samples = th.cat(gathered_samples).cpu()
+        print("sample finished -----------")
+        if dist.get_rank() == 0:
+            # torchvision.utils.make_grid(gathered_samples)
+            torchvision.utils.save_image(gathered_samples, bf.join(get_blob_logdir(), str(self.step)+".png"), nrow=4)
+            print("save finished ---------")
 
     def save(self):
         def save_checkpoint(rate, params):

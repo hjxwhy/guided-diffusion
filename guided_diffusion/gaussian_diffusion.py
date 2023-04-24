@@ -448,7 +448,7 @@ class GaussianDiffusion:
         cond_fn=None,
         model_kwargs=None,
         device=None,
-        progress=False,
+        progress=True,
     ):
         """
         Generate samples from the model.
@@ -632,7 +632,7 @@ class GaussianDiffusion:
         cond_fn=None,
         model_kwargs=None,
         device=None,
-        progress=False,
+        progress=True,
         eta=0.0,
     ):
         """
